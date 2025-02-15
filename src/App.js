@@ -1,6 +1,6 @@
 "use client"
 
-import { useRef, useState, useEffect } from "react"
+import { useRef, useEffect } from "react"
 import "./App.css"
 
 function App() {
@@ -122,7 +122,7 @@ function App() {
 
   return (
     <div className="App">
-      <h1>Video Shape App</h1>
+      <h1>Plaibook AI Assessment</h1>
       <input type="file" accept="video/*" onChange={handleVideoUpload} />
       <br />
       <button onClick={processVideo}>Process Video</button>
