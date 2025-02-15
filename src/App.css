@@ -1,0 +1,48 @@
+.App {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  min-height: 100vh;
+  background-color: #f0f0f0;
+  font-family: sans-serif;
+}
+
+.App h1 {
+  margin-bottom: 20px;
+}
+
+.App input[type="file"] {
+  margin-bottom: 10px;
+  padding: 8px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.App button {
+  padding: 8px 16px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  margin-bottom: 20px;
+}
+
+.App div {
+  display: flex;
+  justify-content: space-around;
+  width: 800px;
+}
+
+.App video,
+.App canvas {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+}
+
+.App p {
+  margin-top: 10px;
+  font-weight: bold;
+}
+
