@@ -19,3 +19,10 @@ the frontend should send singular frames to be processed on the backend, and the
 1. Clone the repository: git clone https://github.com/PeterMagdyIskander/plaibook-ai-assessment.git
 2. cd plaibook-ai-assessment
 3. npm run start
+
+### How to use
+
+1. Upload a video using the upload video button
+2. Click process video
+3. Play the video
+
