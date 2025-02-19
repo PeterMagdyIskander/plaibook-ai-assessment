@@ -1,46 +1,49 @@
 import express from "express";
 import http from "http";
 import { Server } from "socket.io";
-import cors from "cors"; // Import cors
+import cors from "cors";
 
 const app = express();
 const server = http.createServer(app);
 
-// Enable CORS for all routes
-app.use(cors({
-  origin: "http://localhost:3001", // Replace with your frontend URL
-  methods: ["GET", "POST"],
-  credentials: true,
-}));
+app.use(cors({ origin: "http://localhost:3001" }));
 
 const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3001", // Replace with your frontend URL
-    methods: ["GET", "POST"],
-    credentials: true,
-  },
+  cors: { origin: "http://localhost:3001" }
 });
 
 io.on("connection", (socket) => {
   console.log("Client connected");
 
-  socket.on("frame", (frameData) => {
-    const set1 = generatePoints(4);
-    const set2 = generatePoints(5);
-    socket.emit("points", { set1, set2 });
+  socket.on("process_frame", async ({ id, frameData }) => {
+    // Generate points
+    const points = {
+      set1: Array.from({ length: 4 }, () => ({
+        x: Math.random(),
+        y: Math.random()
+      })),
+      set2: Array.from({ length: 5 }, () => ({
+        x: Math.random(),
+        y: Math.random()
+      }))
+    };
+
+    // Random delay between 5-10 seconds
+    await new Promise(resolve => 
+      setTimeout(resolve, 5000 + Math.random() * 5000)
+    );
+
+    socket.emit("frame_processed", {
+      id,
+      points,
+      processedAt: Date.now()
+    });
   });
 
   socket.on("disconnect", () => {
     console.log("Client disconnected");
   });
 });
-
-function generatePoints(count) {
-  return Array.from({ length: count }, () => ({
-    x: Math.random(),
-    y: Math.random(),
-  }));
-}
 
 server.listen(3000, () => {
   console.log("Backend running on port 3000");

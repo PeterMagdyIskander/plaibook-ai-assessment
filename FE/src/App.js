@@ -1,161 +1,184 @@
 "use client"
+import { useRef, useState, useEffect } from "react";
+import { io } from "socket.io-client";
+import "./App.css";
 
-import { useRef, useEffect, useState } from "react"
-import { io } from "socket.io-client"
-import "./App.css"
-
-function App() {
-  const videoRef = useRef(null)
-  const canvasRef = useRef(null)
-  const socketRef = useRef(null)
-  const [isProcessing, setIsProcessing] = useState(false)
-  const animationFrameRef = useRef(null)
-  const pointsRef = useRef({ set1: [], set2: [] })
+export default function App() {
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const processedCanvasRef = useRef(null);
+  const [frameCount, setFrameCount] = useState(0);
+  const socketRef = useRef(null);
+  const processingQueue = useRef([]);
+  const isProcessing = useRef(false);
+  const currentFrameIndex = useRef(0);
 
   useEffect(() => {
-    // Initialize WebSocket connection
-    socketRef.current = io("http://localhost:3000")
-
-    socketRef.current.on("points", (data) => {
-      pointsRef.current = data
-    })
-
-    return () => {
-      socketRef.current?.disconnect()
-      cancelAnimationFrame(animationFrameRef.current)
-    }
-  }, [])
-
-  const handleVideoUpload = (event) => {
-    const file = event.target.files[0]
-    if (file && videoRef.current) {
-      const videoUrl = URL.createObjectURL(file)
-      videoRef.current.src = videoUrl
-    }
-  }
-
-  const processVideo = () => {
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    if (!video || !canvas) return
-
-    const ctx = canvas.getContext("2d")
-    if (!ctx) return
-
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    setIsProcessing(true)
-
-    const sendFrame = () => {
-      if (video.paused || video.ended) {
-        setIsProcessing(false)
-        return
+    socketRef.current = io("http://localhost:3000");
+    
+    socketRef.current.on("frame_processed", ({ id, points }) => {
+      const frameIndex = processingQueue.current.findIndex(f => f.id === id);
+      if (frameIndex >= 0) {
+        processingQueue.current[frameIndex].processed = true;
+        processingQueue.current[frameIndex].points = points;
+        tryProcessQueue();
       }
+    });
 
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height)
-      
-      // Send frame to backend
-      const frameData = canvas.toDataURL("image/jpeg", 0.8)
-      socketRef.current?.emit("frame", {
-        frame: frameData,
-        width: canvas.width,
-        height: canvas.height
-      })
+    return () => socketRef.current?.disconnect();
+  }, []);
 
-      // Draw received points
-      drawPoints(ctx, canvas.width, canvas.height)
-      
-      animationFrameRef.current = requestAnimationFrame(sendFrame)
+  const tryProcessQueue = () => {
+    // Find the next unprocessed frame
+    const nextFrame = processingQueue.current.find(f => !f.processed);
+    if (nextFrame && !isProcessing.current) {
+      isProcessing.current = true;
+      socketRef.current.emit("process_frame", { id: nextFrame.id });
     }
 
-    video.addEventListener("play", sendFrame)
-    video.play()
-  }
-
-  const drawPoints = (ctx, width, height) => {
-    ctx.clearRect(0, 0, width, height)
-    ctx.drawImage(videoRef.current, 0, 0, width, height)
-
-    // Draw set1 (4 points)
-    if (pointsRef.current.set1.length === 4) {
-      drawShape(
-        ctx,
-        pointsRef.current.set1.map(p => ({
-          x: p.x * width,
-          y: p.y * height
-        })),
-        "rgba(255, 0, 0, 0.5)",
-        "rgba(255, 0, 0, 0.8)"
-      )
+    // Display frames in order
+    let displayIndex = 0;
+    while (displayIndex < processingQueue.current.length) {
+      const frame = processingQueue.current[displayIndex];
+      if (frame.processed && frame.displayIndex === undefined) {
+        frame.displayIndex = currentFrameIndex.current++;
+        drawProcessedFrame(frame);
+        setFrameCount(prev => prev + 1);
+      }
+      displayIndex++;
     }
+  };
 
-    // Draw set2 (5 points)
-    if (pointsRef.current.set2.length === 5) {
-      drawShape(
-        ctx,
-        pointsRef.current.set2.map(p => ({
-          x: p.x * width,
-          y: p.y * height
-        })),
-        "rgba(0, 0, 255, 0.5)",
-        "rgba(0, 0, 255, 0.8)"
-      )
+  const drawProcessedFrame = (frame) => {
+    const canvas = processedCanvasRef.current;
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    canvas.width = frame.width;
+    canvas.height = frame.height;
+
+    const img = new Image();
+    img.onload = () => {
+      ctx.drawImage(img, 0, 0);
+      drawShapes(ctx, frame.points, frame.width, frame.height);
+    };
+    img.src = frame.dataUrl;
+  };
+
+  const drawShapes = (ctx, points, width, height) => {
+    // Draw red shape (5 points)
+    ctx.beginPath();
+    points.set1.forEach((p, i) => {
+      const x = p.x * width;
+      const y = p.y * height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+    ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
+    ctx.lineWidth = 2;
+    ctx.fill();
+    ctx.stroke();
+
+    points.set1.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x * width, p.y * height, 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+      ctx.fill();
+    });
+
+    // Draw blue shape (4 points)
+    ctx.beginPath();
+    points.set2.forEach((p, i) => {
+      const x = p.x * width;
+      const y = p.y * height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    });
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(0, 0, 255, 0.3)';
+    ctx.strokeStyle = 'rgba(0, 0, 255, 0.6)';
+    ctx.fill();
+    ctx.stroke();
+
+    points.set2.forEach(p => {
+      ctx.beginPath();
+      ctx.arc(p.x * width, p.y * height, 5, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 0, 255, 0.8)';
+      ctx.fill();
+    });
+  };
+
+  const handleFileUpload = (e) => {
+    const file = e.target.files[0];
+    if (file) videoRef.current.src = URL.createObjectURL(file);
+  };
+
+  const captureFrames = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    video.pause();
+    const duration = video.duration;
+    const fps = 25; // Adjust based on actual video FPS
+    const frameTime = 1 / fps;
+
+    for (let currentTime = 0; currentTime < duration; currentTime += frameTime) {
+      await new Promise(resolve => {
+        video.currentTime = currentTime;
+        
+        video.onseeked = () => {
+          const canvas = canvasRef.current;
+          const ctx = canvas.getContext('2d');
+          
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0);
+
+          const frameId = `frame-${currentTime.toFixed(3)}`;
+          const frameData = canvas.toDataURL("image/jpeg", 0.8);
+          
+          processingQueue.current.push({
+            id: frameId,
+            dataUrl: frameData,
+            width: canvas.width,
+            height: canvas.height,
+            processed: false,
+            points: null
+          });
+
+          tryProcessQueue();
+          resolve();
+        };
+      });
     }
-  }
-
-  const drawShape = (ctx, points, fillColor, vertexColor) => {
-    if (points.length === 0) return
-
-    ctx.beginPath()
-    ctx.moveTo(points[0].x, points[0].y)
-    points.forEach((point, index) => {
-      if (index > 0) ctx.lineTo(point.x, point.y)
-    })
-    ctx.closePath()
-    ctx.fillStyle = fillColor
-    ctx.fill()
-
-    points.forEach((point) => {
-
-      //circle
-      ctx.beginPath()
-      ctx.arc(point.x, point.y, 15, 0, Math.PI * 2)
-      ctx.fillStyle = vertexColor
-      ctx.fill()
-
-      // Semi-circle
-      ctx.beginPath()
-      ctx.arc(point.x, point.y, 20, 0, Math.PI)
-      ctx.strokeStyle = vertexColor
-      ctx.lineWidth = 3
-      ctx.stroke()
-    })
-  }
+  };
 
   return (
-    <div className="App">
-      <h1>Plaibook AI Assessment</h1>
-      <input type="file" accept="video/*" onChange={handleVideoUpload} />
-      <br />
-      <button onClick={processVideo} disabled={isProcessing}>
-        {isProcessing ? "Processing..." : "Process Video"}
-      </button>
-      <br />
-      <div style={{ display: "flex" }}>
-        <div>
+    <div className="container">
+      <h1>Video Frame Analyzer</h1>
+      <input type="file" accept="video/*" onChange={handleFileUpload} />
+      <button onClick={captureFrames}>Start Processing</button>
+      <div className="counter">Frames Analyzed: {frameCount}</div>
+
+      <div className="video-container">
+        <div className="video-panel">
           <h3>Original Video</h3>
-          <video ref={videoRef} controls style={{ width: "400px" }} />
+          <video ref={videoRef} controls className="video-player" />
         </div>
-        <div>
-          <h3>Processed Video</h3>
+
+        <div className="result-panel">
+          <h3>Processed Frame</h3>
           <canvas 
-            ref={canvasRef} 
-            style={{ width: "400px", border: "1px solid black" }}
+            ref={processedCanvasRef}
+            className="processed-canvas"
+            style={{ backgroundColor: '#000' }}
           />
         </div>
       </div>
+      
+      <canvas ref={canvasRef} style={{ display: 'none' }} />
     </div>
-  )
+  );
 }
-
-export default App
