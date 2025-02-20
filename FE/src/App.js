@@ -195,7 +195,7 @@ export default function App() {
 
   return (
     <div className="container">
-      <h1>Video Frame Analyzer</h1>
+      <h1>Plaibook AI Assessment</h1>
       <input type="file" accept="video/*" onChange={handleFileUpload} />
       <button onClick={startProcessing}>Start Processing</button>
       <div className="counter">Frames Analyzed: {frameCount}</div>
