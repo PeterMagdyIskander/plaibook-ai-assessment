@@ -1,100 +1,102 @@
-"use client"
 import { useRef, useState, useEffect } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
 export default function App() {
   const videoRef = useRef(null);
-  const canvasRef = useRef(null);
+  const sourceCanvasRef = useRef(null);
   const processedCanvasRef = useRef(null);
   const [frameCount, setFrameCount] = useState(0);
   const socketRef = useRef(null);
-  const processingQueue = useRef([]);
+
+  // Queue system refs
+  const frameQueue = useRef([]);
   const isProcessing = useRef(false);
-  const currentFrameIndex = useRef(0);
+  const pendingFrames = useRef([]);
+  const animationFrameId = useRef(null);
 
   useEffect(() => {
     socketRef.current = io("http://localhost:3000");
-    
-    socketRef.current.on("frame_processed", ({ id, points }) => {
-      const frameIndex = processingQueue.current.findIndex(f => f.id === id);
-      if (frameIndex >= 0) {
-        processingQueue.current[frameIndex].processed = true;
-        processingQueue.current[frameIndex].points = points;
-        tryProcessQueue();
+
+    socketRef.current.on("frame_processed", (points) => {
+      if (pendingFrames.current.length > 0) {
+        // Get the oldest pending frame
+        const frameData = pendingFrames.current.shift();
+        drawProcessedFrame(frameData, points);
+        setFrameCount(prev => prev + 1);
+        isProcessing.current = false;
+        processNextFrame();
       }
     });
 
-    return () => socketRef.current?.disconnect();
+    return () => {
+      socketRef.current?.disconnect();
+      cancelAnimationFrame(animationFrameId.current);
+    };
   }, []);
 
-  const tryProcessQueue = () => {
-    // Find the next unprocessed frame
-    const nextFrame = processingQueue.current.find(f => !f.processed);
-    if (nextFrame && !isProcessing.current) {
-      isProcessing.current = true;
-      socketRef.current.emit("process_frame", { id: nextFrame.id });
-    }
-
-    // Display frames in order
-    let displayIndex = 0;
-    while (displayIndex < processingQueue.current.length) {
-      const frame = processingQueue.current[displayIndex];
-      if (frame.processed && frame.displayIndex === undefined) {
-        frame.displayIndex = currentFrameIndex.current++;
-        drawProcessedFrame(frame);
-        setFrameCount(prev => prev + 1);
-      }
-      displayIndex++;
-    }
-  };
-
-  const drawProcessedFrame = (frame) => {
+  const drawProcessedFrame = (frameData, points) => {
     const canvas = processedCanvasRef.current;
     if (!canvas) return;
-    
-    const ctx = canvas.getContext('2d');
-    canvas.width = frame.width;
-    canvas.height = frame.height;
 
+    const ctx = canvas.getContext('2d');
     const img = new Image();
+
     img.onload = () => {
+      canvas.width = img.width;
+      canvas.height = img.height;
       ctx.drawImage(img, 0, 0);
-      drawShapes(ctx, frame.points, frame.width, frame.height);
+      drawPoints(ctx, points, img.width, img.height);
     };
-    img.src = frame.dataUrl;
+    img.src = frameData;
   };
 
-  const drawShapes = (ctx, points, width, height) => {
-    // Draw red shape (5 points)
+  const drawPoints = (ctx, points, width, height) => {
+    // Helper function to sort points in convex hull order
+    const convexHull = (originalPoints) => {
+        if (originalPoints.length < 3) return originalPoints;
+        const points = [...originalPoints];
+        
+        // Find centroid
+        const centroid = points.reduce((acc, p) => ({
+            x: acc.x + p.x,
+            y: acc.y + p.y
+        }), { x: 0, y: 0 });
+        centroid.x /= points.length;
+        centroid.y /= points.length;
+
+        // Sort by polar angle from centroid
+        return points.sort((a, b) => {
+            const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
+            const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
+            return angleA - angleB;
+        });
+    };
+
+    // Process red points (set1)
+    const sortedRed = convexHull(points.set1);
     ctx.beginPath();
-    points.set1.forEach((p, i) => {
-      const x = p.x * width;
-      const y = p.y * height;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    sortedRed.forEach((p, i) => {
+        const x = p.x * width;
+        const y = p.y * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
     });
     ctx.closePath();
     ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
     ctx.strokeStyle = 'rgba(255, 0, 0, 0.6)';
-    ctx.lineWidth = 2;
+    ctx.lineWidth = 3;
     ctx.fill();
     ctx.stroke();
 
-    points.set1.forEach(p => {
-      ctx.beginPath();
-      ctx.arc(p.x * width, p.y * height, 5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-      ctx.fill();
-    });
-
-    // Draw blue shape (4 points)
+    // Process blue points (set2)
+    const sortedBlue = convexHull(points.set2);
     ctx.beginPath();
-    points.set2.forEach((p, i) => {
-      const x = p.x * width;
-      const y = p.y * height;
-      if (i === 0) ctx.moveTo(x, y);
-      else ctx.lineTo(x, y);
+    sortedBlue.forEach((p, i) => {
+        const x = p.x * width;
+        const y = p.y * height;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
     });
     ctx.closePath();
     ctx.fillStyle = 'rgba(0, 0, 255, 0.3)';
@@ -102,12 +104,88 @@ export default function App() {
     ctx.fill();
     ctx.stroke();
 
-    points.set2.forEach(p => {
-      ctx.beginPath();
-      ctx.arc(p.x * width, p.y * height, 5, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(0, 0, 255, 0.8)';
-      ctx.fill();
+    // Draw points and semicircles (unchanged)
+    points.set1.forEach(p => {
+        const x = p.x * width;
+        const y = p.y * height;
+        ctx.beginPath();
+        ctx.arc(x, y, 15, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, 20, 0, Math.PI);
+        ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
     });
+
+    points.set2.forEach(p => {
+        const x = p.x * width;
+        const y = p.y * height;
+        ctx.beginPath();
+        ctx.arc(x, y, 15, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(0, 0, 255, 0.8)';
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, 20, 0, Math.PI);
+        ctx.strokeStyle = 'rgba(0, 0, 255, 0.8)';
+        ctx.lineWidth = 3;
+        ctx.stroke();
+    });
+};
+
+  const captureFrame = () => {
+    const video = videoRef.current;
+    if (!video || video.paused || video.ended) return;
+
+    const canvas = sourceCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0);
+
+    // Add frame to queue
+    frameQueue.current.push({
+      dataUrl: canvas.toDataURL("image/jpeg"),
+      width: canvas.width,
+      height: canvas.height,
+      timestamp: video.currentTime
+    });
+
+    // Continue processing
+    animationFrameId.current = requestAnimationFrame(captureFrame);
+  };
+
+  const processNextFrame = () => {
+    if (!isProcessing.current && frameQueue.current.length > 0) {
+      isProcessing.current = true;
+      const nextFrame = frameQueue.current.shift();
+      pendingFrames.current.push(nextFrame.dataUrl);
+      socketRef.current.emit("process_frame");
+    }
+  };
+
+  const startProcessing = () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Reset queue state
+    frameQueue.current = [];
+    pendingFrames.current = [];
+    isProcessing.current = false;
+
+    video.play();
+    animationFrameId.current = requestAnimationFrame(captureFrame);
+
+    // Start processing loop
+    const processInterval = setInterval(() => {
+      if (video.paused || video.ended) {
+        clearInterval(processInterval);
+        return;
+      }
+      processNextFrame();
+    }, 100);
   };
 
   const handleFileUpload = (e) => {
@@ -115,51 +193,11 @@ export default function App() {
     if (file) videoRef.current.src = URL.createObjectURL(file);
   };
 
-  const captureFrames = async () => {
-    const video = videoRef.current;
-    if (!video) return;
-
-    video.pause();
-    const duration = video.duration;
-    const fps = 25; // Adjust based on actual video FPS
-    const frameTime = 1 / fps;
-
-    for (let currentTime = 0; currentTime < duration; currentTime += frameTime) {
-      await new Promise(resolve => {
-        video.currentTime = currentTime;
-        
-        video.onseeked = () => {
-          const canvas = canvasRef.current;
-          const ctx = canvas.getContext('2d');
-          
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          ctx.drawImage(video, 0, 0);
-
-          const frameId = `frame-${currentTime.toFixed(3)}`;
-          const frameData = canvas.toDataURL("image/jpeg", 0.8);
-          
-          processingQueue.current.push({
-            id: frameId,
-            dataUrl: frameData,
-            width: canvas.width,
-            height: canvas.height,
-            processed: false,
-            points: null
-          });
-
-          tryProcessQueue();
-          resolve();
-        };
-      });
-    }
-  };
-
   return (
     <div className="container">
       <h1>Video Frame Analyzer</h1>
       <input type="file" accept="video/*" onChange={handleFileUpload} />
-      <button onClick={captureFrames}>Start Processing</button>
+      <button onClick={startProcessing}>Start Processing</button>
       <div className="counter">Frames Analyzed: {frameCount}</div>
 
       <div className="video-container">
@@ -170,15 +208,14 @@ export default function App() {
 
         <div className="result-panel">
           <h3>Processed Frame</h3>
-          <canvas 
+          <canvas
             ref={processedCanvasRef}
             className="processed-canvas"
             style={{ backgroundColor: '#000' }}
           />
         </div>
       </div>
-      
-      <canvas ref={canvasRef} style={{ display: 'none' }} />
+      <canvas ref={sourceCanvasRef} style={{ display: 'none' }} />
     </div>
   );
 }
