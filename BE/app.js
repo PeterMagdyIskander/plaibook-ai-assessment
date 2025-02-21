@@ -14,7 +14,7 @@ const io = new Server(server, {
 });
 
 io.on("connection", (socket) => {
-  console.log("Client connected", socket.id);
+  console.log("Client connected");
 
   socket.on("process_frame", async () => {
     // Generate random points
@@ -29,11 +29,10 @@ io.on("connection", (socket) => {
       }))
     };
 
-    // Random processing delay
-    await new Promise(resolve => 
-      setTimeout(resolve, 500 + Math.random() * 2000)
+    await new Promise(resolve =>
+      setTimeout(resolve, 5000)
     );
-
+    
     socket.emit("frame_processed", points);
   });
 

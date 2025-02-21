@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect,useCallback  } from "react";
+import { useRef, useState, useEffect, useCallback } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
@@ -9,7 +9,6 @@ export default function App() {
   const [frameCount, setFrameCount] = useState(0);
   const socketRef = useRef(null);
 
-  // Queue system refs
   const frameQueue = useRef([]);
   const isProcessing = useRef(false);
   const pendingFrames = useRef([]);
@@ -29,7 +28,7 @@ export default function App() {
       drawPoints(ctx, points, img.width, img.height);
     };
     img.src = frameData;
-  }, []); // Empty dependency array as it doesn't depend on external values
+  }, []);
 
   const processNextFrame = useCallback(() => {
     if (!isProcessing.current && frameQueue.current.length > 0) {
@@ -38,7 +37,7 @@ export default function App() {
       pendingFrames.current.push(nextFrame.dataUrl);
       socketRef.current.emit("process_frame");
     }
-  }, []); // Empty dependency array as it uses refs
+  }, []);
 
   useEffect(() => {
     socketRef.current = io("http://localhost:3000");
@@ -47,6 +46,8 @@ export default function App() {
       if (pendingFrames.current.length > 0) {
         const frameData = pendingFrames.current.shift();
         drawProcessedFrame(frameData, points);
+        console.log(points)
+        console.log(socketRef)
         setFrameCount(prev => prev + 1);
         isProcessing.current = false;
         processNextFrame();
@@ -61,7 +62,6 @@ export default function App() {
 
 
   const drawPoints = (ctx, points, width, height) => {
-    // Helper function to sort points in convex hull order
     const convexHull = (originalPoints) => {
       if (originalPoints.length < 3) return originalPoints;
       const points = [...originalPoints];
@@ -82,7 +82,6 @@ export default function App() {
       });
     };
 
-    // Process red points (set1)
     const sortedRed = convexHull(points.set1);
     ctx.beginPath();
     sortedRed.forEach((p, i) => {
@@ -98,7 +97,6 @@ export default function App() {
     ctx.fill();
     ctx.stroke();
 
-    // Process blue points (set2)
     const sortedBlue = convexHull(points.set2);
     ctx.beginPath();
     sortedBlue.forEach((p, i) => {
@@ -113,7 +111,6 @@ export default function App() {
     ctx.fill();
     ctx.stroke();
 
-    // Draw points and semicircles (unchanged)
     points.set1.forEach(p => {
       const x = p.x * width;
       const y = p.y * height;
@@ -162,8 +159,7 @@ export default function App() {
     });
   };
 
-  
-  // Replace the processInterval with this logic
+
   const startProcessing = () => {
     const video = videoRef.current;
     if (!video) return;
@@ -175,10 +171,8 @@ export default function App() {
 
     video.play();
 
-    // Capture new frame every 500ms
     captureIntervalId.current = setInterval(captureFrame, 500);
 
-    // Event-driven processing trigger
     const processTrigger = () => {
       if (video.paused || video.ended) return;
 
@@ -186,7 +180,6 @@ export default function App() {
       requestAnimationFrame(processTrigger);
     };
 
-    // Start processing loop
     processTrigger();
   };
 
