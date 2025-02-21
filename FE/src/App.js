@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from "react";
+import { useRef, useState, useEffect,useCallback  } from "react";
 import { io } from "socket.io-client";
 import "./App.css";
 
@@ -13,29 +13,9 @@ export default function App() {
   const frameQueue = useRef([]);
   const isProcessing = useRef(false);
   const pendingFrames = useRef([]);
-  const animationFrameId = useRef(null);
+  const captureIntervalId = useRef(null);
 
-  useEffect(() => {
-    socketRef.current = io("http://localhost:3000");
-
-    socketRef.current.on("frame_processed", (points) => {
-      if (pendingFrames.current.length > 0) {
-        // Get the oldest pending frame
-        const frameData = pendingFrames.current.shift();
-        drawProcessedFrame(frameData, points);
-        setFrameCount(prev => prev + 1);
-        isProcessing.current = false;
-        processNextFrame();
-      }
-    });
-
-    return () => {
-      socketRef.current?.disconnect();
-      cancelAnimationFrame(animationFrameId.current);
-    };
-  }, []);
-
-  const drawProcessedFrame = (frameData, points) => {
+  const drawProcessedFrame = useCallback((frameData, points) => {
     const canvas = processedCanvasRef.current;
     if (!canvas) return;
 
@@ -49,38 +29,67 @@ export default function App() {
       drawPoints(ctx, points, img.width, img.height);
     };
     img.src = frameData;
-  };
+  }, []); // Empty dependency array as it doesn't depend on external values
+
+  const processNextFrame = useCallback(() => {
+    if (!isProcessing.current && frameQueue.current.length > 0) {
+      isProcessing.current = true;
+      const nextFrame = frameQueue.current.shift();
+      pendingFrames.current.push(nextFrame.dataUrl);
+      socketRef.current.emit("process_frame");
+    }
+  }, []); // Empty dependency array as it uses refs
+
+  useEffect(() => {
+    socketRef.current = io("http://localhost:3000");
+
+    socketRef.current.on("frame_processed", (points) => {
+      if (pendingFrames.current.length > 0) {
+        const frameData = pendingFrames.current.shift();
+        drawProcessedFrame(frameData, points);
+        setFrameCount(prev => prev + 1);
+        isProcessing.current = false;
+        processNextFrame();
+      }
+    });
+
+    return () => {
+      socketRef.current?.disconnect();
+      clearInterval(captureIntervalId.current);
+    };
+  }, [drawProcessedFrame, processNextFrame]);
+
 
   const drawPoints = (ctx, points, width, height) => {
     // Helper function to sort points in convex hull order
     const convexHull = (originalPoints) => {
-        if (originalPoints.length < 3) return originalPoints;
-        const points = [...originalPoints];
-        
-        // Find centroid
-        const centroid = points.reduce((acc, p) => ({
-            x: acc.x + p.x,
-            y: acc.y + p.y
-        }), { x: 0, y: 0 });
-        centroid.x /= points.length;
-        centroid.y /= points.length;
+      if (originalPoints.length < 3) return originalPoints;
+      const points = [...originalPoints];
 
-        // Sort by polar angle from centroid
-        return points.sort((a, b) => {
-            const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
-            const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
-            return angleA - angleB;
-        });
+      // Find centroid
+      const centroid = points.reduce((acc, p) => ({
+        x: acc.x + p.x,
+        y: acc.y + p.y
+      }), { x: 0, y: 0 });
+      centroid.x /= points.length;
+      centroid.y /= points.length;
+
+      // Sort by polar angle from centroid
+      return points.sort((a, b) => {
+        const angleA = Math.atan2(a.y - centroid.y, a.x - centroid.x);
+        const angleB = Math.atan2(b.y - centroid.y, b.x - centroid.x);
+        return angleA - angleB;
+      });
     };
 
     // Process red points (set1)
     const sortedRed = convexHull(points.set1);
     ctx.beginPath();
     sortedRed.forEach((p, i) => {
-        const x = p.x * width;
-        const y = p.y * height;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      const x = p.x * width;
+      const y = p.y * height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     });
     ctx.closePath();
     ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
@@ -93,10 +102,10 @@ export default function App() {
     const sortedBlue = convexHull(points.set2);
     ctx.beginPath();
     sortedBlue.forEach((p, i) => {
-        const x = p.x * width;
-        const y = p.y * height;
-        if (i === 0) ctx.moveTo(x, y);
-        else ctx.lineTo(x, y);
+      const x = p.x * width;
+      const y = p.y * height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
     });
     ctx.closePath();
     ctx.fillStyle = 'rgba(0, 0, 255, 0.3)';
@@ -106,33 +115,33 @@ export default function App() {
 
     // Draw points and semicircles (unchanged)
     points.set1.forEach(p => {
-        const x = p.x * width;
-        const y = p.y * height;
-        ctx.beginPath();
-        ctx.arc(x, y, 15, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(x, y, 20, 0, Math.PI);
-        ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
-        ctx.lineWidth = 3;
-        ctx.stroke();
+      const x = p.x * width;
+      const y = p.y * height;
+      ctx.beginPath();
+      ctx.arc(x, y, 15, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255, 0, 0, 0.8)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, 20, 0, Math.PI);
+      ctx.strokeStyle = 'rgba(255, 0, 0, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
     });
 
     points.set2.forEach(p => {
-        const x = p.x * width;
-        const y = p.y * height;
-        ctx.beginPath();
-        ctx.arc(x, y, 15, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(0, 0, 255, 0.8)';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(x, y, 20, 0, Math.PI);
-        ctx.strokeStyle = 'rgba(0, 0, 255, 0.8)';
-        ctx.lineWidth = 3;
-        ctx.stroke();
+      const x = p.x * width;
+      const y = p.y * height;
+      ctx.beginPath();
+      ctx.arc(x, y, 15, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(0, 0, 255, 0.8)';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(x, y, 20, 0, Math.PI);
+      ctx.strokeStyle = 'rgba(0, 0, 255, 0.8)';
+      ctx.lineWidth = 3;
+      ctx.stroke();
     });
-};
+  };
 
   const captureFrame = () => {
     const video = videoRef.current;
@@ -145,47 +154,40 @@ export default function App() {
     canvas.height = video.videoHeight;
     ctx.drawImage(video, 0, 0);
 
-    // Add frame to queue
     frameQueue.current.push({
       dataUrl: canvas.toDataURL("image/jpeg"),
       width: canvas.width,
       height: canvas.height,
       timestamp: video.currentTime
     });
-
-    // Continue processing
-    animationFrameId.current = requestAnimationFrame(captureFrame);
   };
 
-  const processNextFrame = () => {
-    if (!isProcessing.current && frameQueue.current.length > 0) {
-      isProcessing.current = true;
-      const nextFrame = frameQueue.current.shift();
-      pendingFrames.current.push(nextFrame.dataUrl);
-      socketRef.current.emit("process_frame");
-    }
-  };
-
+  
+  // Replace the processInterval with this logic
   const startProcessing = () => {
     const video = videoRef.current;
     if (!video) return;
 
-    // Reset queue state
+    // Reset state
     frameQueue.current = [];
     pendingFrames.current = [];
     isProcessing.current = false;
 
     video.play();
-    animationFrameId.current = requestAnimationFrame(captureFrame);
+
+    // Capture new frame every 500ms
+    captureIntervalId.current = setInterval(captureFrame, 500);
+
+    // Event-driven processing trigger
+    const processTrigger = () => {
+      if (video.paused || video.ended) return;
+
+      processNextFrame();
+      requestAnimationFrame(processTrigger);
+    };
 
     // Start processing loop
-    const processInterval = setInterval(() => {
-      if (video.paused || video.ended) {
-        clearInterval(processInterval);
-        return;
-      }
-      processNextFrame();
-    }, 100);
+    processTrigger();
   };
 
   const handleFileUpload = (e) => {
